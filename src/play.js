@@ -1,7 +1,7 @@
 // The session: the physio's routine, danced to the Groove Back band.
 // Big demonstration in the middle, the move list on the left, reps + what's next on the right.
 // Nothing here scores accuracy. The music counts reps; the camera (optional) only gives gentle tips.
-import { Band, unlockAudio, sfx } from './audio.js';
+import { Band, SongPlayer, unlockAudio, sfx } from './audio.js';
 import { drawFigure, drawPicto, hexA, clamp } from './figure.js';
 import { songPose, blockAt, corePose, repsAt, fmtTime, peaksOf, movePoses } from './song.js';
 import { drawScene, DARK_SCENES } from './scene.js';
@@ -53,7 +53,7 @@ export function playSong(root, { song, player, outfit, wear = {}, track, camera 
       </div>
     </div>
     <aside class="p-side">
-      <div class="p-track card"><span class="cover" style="--a:${track.cover[0]};--b:${track.cover[1]}">${icon.music}</span><div><b>${esc(track.title)}</b><small>${GENRES[track.world]} · ${song.bpm} BPM</small></div><div class="beatdots" id="hBeat" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div>
+      <div class="p-track card"><span class="cover" style="--a:${track.cover[0]};--b:${track.cover[1]}">${icon.music}</span><div><b>${esc(track.title)}</b><small>${esc(track.artist || GENRES[track.world])} · ${Math.round(song.bpm)} BPM</small></div><div class="beatdots" id="hBeat" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div>
       <div class="p-now card">
         <div class="ring" id="ring"><svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="52" class="trk"/><circle cx="60" cy="60" r="52" class="arc" id="ringArc"/></svg>
           <div class="ring-in" aria-live="off"><b><span id="rN">0</span><i id="rT"></i></b><small id="rU">get ready</small></div></div>
@@ -65,7 +65,7 @@ export function playSong(root, { song, player, outfit, wear = {}, track, camera 
     </aside>
     <div class="pover" id="pover" hidden></div>
     <div class="countdown" id="cd" aria-live="assertive">
-      <div class="cd-intro"><p class="eyebrow">${esc(track.title)} · ${GENRES[track.world]}</p><h2>${esc(song.title)}</h2>
+      <div class="cd-intro"><p class="eyebrow">${esc(track.title)} · ${esc(track.artist || GENRES[track.world])}</p><h2>${esc(song.title)}</h2>
         <p class="cd-meta">${exs.length} moves · about ${Math.max(1, Math.round(song.secs / 60))} min${song.practice ? ' · practice' : ''}</p>
         <p class="cd-tip">${song.seated ? 'Sit tall in a sturdy chair. Mirror the coach.' : 'Clear a little space around you. Mirror the coach.'}</p></div>
       <div class="cd-num" id="cdNum"><svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="54" class="trk"/><circle cx="60" cy="60" r="54" class="arc" id="cdArc"/></svg><b id="cdTxt"></b></div>
@@ -94,18 +94,22 @@ export function playSong(root, { song, player, outfit, wear = {}, track, camera 
   // ---------------------------------------------------------------- state
   const st = { lite: !!lite, liteUsed: !!lite, paused: false, ended: false, started: false, hurt: 0, played: 0, lastT: 0, fb: null, particles: [], cur: -1, lastReps: -1, said: {}, groove: 1, exPlayed: {}, combo: 0, maxCombo: 0, tally: [0, 0, 0, 0], jfb: null, hintT: 0, viewT: 0,
     live: { form: 0.5, worst: null, diffs: null, glow: {}, kind: 'none', since: 0, cueAt: 0, cueKind: '' } };
-  const band = new Band(song.bpm, track.world, (b) => {
+  const makeBand = () => new Band(song.bpm, track.world, (b) => {
     const e = blockAt(song, b), next = song.blocks[e.index + 1], k = b - e.startBeat;
     const nextKind = k >= e.beats - 8 ? (next ? next.kind : 'end') : e.kind;
     return { kind: e.kind, spotlight: false, firstBeatOfEight: k % 8 === 0, firstOfSection: b === e.startBeat, nextKind };
-  }, track.tr);
+  }, track.tr || 0);
+  // a real song is the clock when its file is there; otherwise the synthesised band plays at the same pace
+  let band = track.file && song.track === track.id ? new SongPlayer(track, song) : makeBand();
+  if (import.meta.env.DEV) window.__gb = () => ({ band, song });
+  const songReady = band instanceof SongPlayer ? band.ready().then((ok) => { if (!ok) { band.stop(0); band = makeBand(); } }) : Promise.resolve();
 
   // ---------------------------------------------------------------- 3, 2, 1, GO
   const cd = $('#cd', root), cdTxt = $('#cdTxt', root), cdNum = $('#cdNum', root), cdArc = $('#cdArc', root);
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   (async () => {
     await unlockAudio(); sfx.whoosh();
-    await wait(REDUCED() ? 900 : 1700);
+    await Promise.all([wait(REDUCED() ? 900 : 1700), songReady]);
     cd.classList.add('counting');
     for (const n of [3, 2, 1, 0]) {
       if (st.ended) return;
@@ -264,7 +268,8 @@ export function playSong(root, { song, player, outfit, wear = {}, track, camera 
     LAY.youX = Math.max(110, LAY.cx - Math.min(W * 0.3, 300 * LAY.s));
     if (me) { drawFigure(g, LAY.youX, LAY.cy + 70 * LAY.s, LAY.s * 0.72, me, { body: '#8AD6D1', skin: player.skin, alpha: 0.9, glow: false, seated: song.seated }); if (!st.jfb || st.jfb.small || performance.now() - st.jfb.t > 1300) pill('YOU', LAY.cy - 120 * LAY.s, '#1F7374', LAY.youX); }
     drawFigure(g, LAY.cx, LAY.cy, LAY.s, sp.pose, {
-      body: outfit.color, glove: outfit.glove, skin: player.skin, hat: wear.hat, trail: wear.trail, outline: dark ? 'rgba(255,248,242,0.95)' : undefined,
+      face: st.jfb && performance.now() - st.jfb.t < 1400 ? (st.jfb.stars >= 3 ? 'excited' : st.jfb.stars ? 'happy' : 'surprised') : e.kind === 'rest' || CORE[sp.core].rest ? 'neutral' : !CORE[sp.core].rest && sp.core ? 'focused' : 'happy',
+      body: outfit.color, glove: outfit.glove, hat: wear.hat, trail: wear.trail, outline: dark ? 'rgba(255,248,242,0.95)' : undefined,
       showCore: !CORE[sp.core].rest, coreParts: song.coreParts, seated: song.seated, pulse: sp.invisible, pulseAmt: sp.pulse,
       limbGlow: me && !CORE[sp.core].rest ? limbGlow() : null, glowColor: dark ? hexA(outfit.color, 0.6) : 'rgba(255,140,82,0.22)',
     });

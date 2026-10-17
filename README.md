@@ -58,3 +58,8 @@ The league crew, the physio account and notifications are simulated in this prot
 - `src/tracker.js`: camera pose tracking (optional)
 - `src/main.js`: every other screen
 - `src/style.css`: the light theme
+
+## Fox revision (Oct 2026)
+- **Coach:** the fox from `groove_back_character_sheet.svg`, rigged in `src/fox-rig.js` (generated from the sheet) and drawn by `src/fox.js`. It uses the same joint angles as before, with 8 expressions, fur colours and a headband in your outfit colour.
+- **Splash + onboarding:** `src/intro.js` adds the loading screen, the sidebar-stepper onboarding and GSAP motion (page reveals, step transitions, card pops). Reduce motion turns all of it off.
+- **Music:** 5 phases × 3 songs (`PHASES` / `TRACKS` in `src/content.js`). Phase 1 is open; later phases unlock with rank. To use your own songs, rename the titles there; real audio files still need wiring into the band clock.

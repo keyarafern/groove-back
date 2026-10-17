@@ -2,7 +2,7 @@
 // Warm-up → exercise 1 → breathe → exercise 2 → breathe → … → cool-down.
 // Each exercise block lasts exactly its prescribed reps (or seconds) at the plan's pace,
 // so the music does the counting. Flair (the dance for the rest of the body) never changes the dose.
-import { CORE, INJURIES, FLAIR_SETS, FLAIR_NAMES, POSES } from './content.js';
+import { CORE, INJURIES, FLAIR_SETS, FLAIR_NAMES, POSES, TRACKS } from './content.js';
 import { lerpPose, mergePose, eio, clamp } from './figure.js';
 
 export function liteOf(id, seated) {
@@ -17,13 +17,27 @@ function fitSeated(id, seated) {
 }
 // The key shapes of a move, for small looping previews (lists, next card, avatars).
 export const movePoses = (m) => (m.seq ? m.seq.join(',') : `${m.a},${m.b}`);
+// Fit a real song to the plan's pace: dance on every beat or every other beat, then nudge the playback
+// rate (pitch is kept) by up to -15%, never faster than the original song. The result is never faster than the plan.
+export function songPace(T, target) {
+  let best = null;
+  for (const mult of [1, 0.5, 0.25]) {
+    const base = T.bpm * mult, rate = Math.min(1, Math.max(0.85, target / base)), bpm = base * rate;
+    if (bpm > target + 0.5) continue;
+    if (!best || bpm > best.bpm) best = { mult, rate, bpm };
+  }
+  return best || { mult: 0.25, rate: 0.85, bpm: T.bpm * 0.25 * 0.85 };
+}
+
 export const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 
 // opts: { rx, injury, plan: 'green'|'amber'|'red', intensity (0..rx.maxIntensity), track, scene, practice }
 export function buildRoutine(opts) {
   const { rx } = opts;
   const seated = !rx.standing, red = opts.plan === 'red', amber = opts.plan === 'amber';
-  const bpm = Math.round(rx.bpm * (amber ? 0.9 : red ? 0.85 : 1)), spb = 60 / bpm;
+  const target = rx.bpm * (amber ? 0.9 : red ? 0.85 : 1);
+  const T = TRACKS.find((t) => t.id === opts.track), pace = T && T.file ? songPace(T, target) : null;
+  const bpm = pace ? pace.bpm : Math.round(target), spb = 60 / bpm;
   const intensity = clamp(red ? 0 : Math.min(opts.intensity, rx.maxIntensity), 0, 3);
   const flairs = FLAIR_SETS[Math.round(intensity)];
   const blocks = [], exercises = [];
@@ -55,7 +69,7 @@ export function buildRoutine(opts) {
   push({ kind: 'cool', core: 'breathe', beats: 8, label: 'Cool-down', flair: ['floatIn', 'floatOut', 'floatOut', 'floatIn'], flairName: 'Arms float with the breath' });
   const totalBeats = beat;
   return {
-    title: rx.title, blocks, exercises, totalBeats, bpm, spb, secs: totalBeats * spb, seated, coreParts: (INJURIES[opts.injury] || INJURIES.knee).core,
+    title: rx.title, mult: pace ? pace.mult : 1, rate: pace ? pace.rate : 1, blocks, exercises, totalBeats, bpm, spb, secs: totalBeats * spb, seated, coreParts: (INJURIES[opts.injury] || INJURIES.knee).core,
     plan: opts.plan, intensity, track: opts.track, scene: opts.scene, practice: !!opts.practice,
   };
 }

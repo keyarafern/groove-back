@@ -25,7 +25,7 @@ const fresh = () => ({
   v: 2, started: null,
   profile: { nick: '', skin: SKIN[1], outfit: 'teal', injury: 'knee', onboarded: false },
   rx: presetPlan('knee'),
-  prefs: { track: 'sunny-steps', scene: 'room', intensity: 1, camera: true, lite: false },
+  prefs: { track: 'she-doesnt-mind', scene: 'room', intensity: 1, camera: true, lite: false },
   a11y: { largeText: false, reduceMotion: false, highContrast: false, sound: true },
   privacy: { shareMilestones: true, shareStreak: true, showRanking: false },
   notify: { reminders: true, time: '18:00', cheers: true },
@@ -36,13 +36,42 @@ const fresh = () => ({
   settings: { dayOffset: 0 },
 });
 
-export let S = load();
-function load() {
-  try { const raw = localStorage.getItem(KEY); if (raw) { const f = fresh(), d = JSON.parse(raw); return { ...f, ...d, prefs: { ...f.prefs, ...d.prefs }, a11y: { ...f.a11y, ...d.a11y }, privacy: { ...f.privacy, ...d.privacy }, notify: { ...f.notify, ...d.notify } }; } } catch (e) { /* new player */ }
+// ---------------------------------------------------------------- profiles
+// Several people (or one person with a new injury) can share a device. Each profile keeps its own game,
+// saved under its own key; the list remembers which one is playing.
+const PKEY = 'groove-back.profiles';
+const keyOf = (id) => `${KEY}:${id}`;
+function readList() {
+  try { const l = JSON.parse(localStorage.getItem(PKEY) || 'null'); if (l && Array.isArray(l.ids)) return l; } catch (e) { /* */ }
+  // first run after this update: an existing single save becomes the first profile
+  const l = { ids: [], active: null };
+  try { const old = localStorage.getItem(KEY); if (old) { localStorage.setItem(keyOf('p1'), old); l.ids = ['p1']; l.active = 'p1'; } } catch (e) { /* */ }
+  writeList(l); return l;
+}
+function writeList(l) { try { localStorage.setItem(PKEY, JSON.stringify(l)); } catch (e) { /* */ } }
+let PL = readList();
+
+export let S = load(PL.active);
+function load(id) {
+  try { const raw = id && localStorage.getItem(keyOf(id)); if (raw) { const f = fresh(), d = JSON.parse(raw); return { ...f, ...d, prefs: { ...f.prefs, ...d.prefs }, a11y: { ...f.a11y, ...d.a11y }, privacy: { ...f.privacy, ...d.privacy }, notify: { ...f.notify, ...d.notify }, settings: { ...f.settings, ...d.settings } }; } } catch (e) { /* */ }
   return fresh();
 }
-export function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* storage blocked: progress lasts this visit */ } }
+export function save() { if (!PL.active) return; try { localStorage.setItem(keyOf(PL.active), JSON.stringify(S)); } catch (e) { /* storage blocked: progress lasts this visit */ } }
 export function resetAll() { S = fresh(); save(); }
+export const activeProfile = () => PL.active;
+export function listProfiles() {
+  return PL.ids.map((id) => { const d = load(id); return { id, nick: d.profile.nick || 'New dancer', skin: d.profile.skin, outfit: d.profile.outfit, injury: d.profile.injury, onboarded: d.profile.onboarded, points: d.points, sessions: d.sessions.filter((x) => !x.practice && x.status !== 'partial').length }; });
+}
+export function switchProfile(id) { if (!PL.ids.includes(id)) return; PL.active = id; writeList(PL); S = load(id); }
+export function newProfile() {
+  const id = 'p' + Date.now().toString(36);
+  PL.ids.push(id); PL.active = id; writeList(PL); S = fresh(); save(); return id;
+}
+export function deleteProfile(id) {
+  PL.ids = PL.ids.filter((x) => x !== id); try { localStorage.removeItem(keyOf(id)); } catch (e) { /* */ }
+  if (PL.active === id) { PL.active = PL.ids[0] || null; S = load(PL.active); }
+  writeList(PL);
+}
 
 // ---------------------------------------------------------------- dates (with a playtest offset)
 export function now() { return new Date(Date.now() + S.settings.dayOffset * 86400000); }

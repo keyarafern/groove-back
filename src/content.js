@@ -184,18 +184,35 @@ export const RANKS = [
 // The tempo always comes from the physio's plan: changing the track never changes the exercise pace.
 export const GENRES = { lofi: 'Lo-fi', acoustic: 'Acoustic', pop: 'Pop', dhol: 'Bhangra', dance: 'Electro' };
 export const MOODS = ['All', 'Chill', 'Happy', 'Energetic', 'World'];
-export const TRACKS = [
-  { id: 'slow-sunrise', title: 'Slow Sunrise', world: 'lofi', tr: 0, moods: ['Chill'], rank: 0, cover: ['#8AD6D1', '#FFF0C5'] },
-  { id: 'window-seat', title: 'Window Seat', world: 'lofi', tr: 3, moods: ['Chill'], rank: 0, cover: ['#B9AEF0', '#8AD6D1'] },
-  { id: 'porch-swing', title: 'Porch Swing', world: 'acoustic', tr: 0, moods: ['Chill', 'Happy'], rank: 0, cover: ['#FFD9A8', '#FF8C52'] },
-  { id: 'easy-does-it', title: 'Easy Does It', world: 'acoustic', tr: -2, moods: ['Happy'], rank: 1, cover: ['#FFF0C5', '#359FA0'] },
-  { id: 'sunny-steps', title: 'Sunny Steps', world: 'pop', tr: 0, moods: ['Happy'], rank: 0, cover: ['#FF8C52', '#FFD36B'] },
-  { id: 'rise-again', title: 'Rise Again', world: 'pop', tr: 2, moods: ['Happy', 'Energetic'], rank: 1, cover: ['#E8628F', '#FF8C52'] },
-  { id: 'rooftop-dhol', title: 'Rooftop Dhol', world: 'dhol', tr: 0, moods: ['Energetic', 'World'], rank: 2, cover: ['#F2B33D', '#E8692B'] },
-  { id: 'baraat-bounce', title: 'Baraat Bounce', world: 'dhol', tr: -3, moods: ['Energetic', 'World'], rank: 3, cover: ['#FF8C52', '#9C8CE8'] },
-  { id: 'night-run', title: 'Night Run', world: 'dance', tr: 0, moods: ['Energetic'], rank: 3, cover: ['#2F4858', '#359FA0'] },
-  { id: 'comeback-remix', title: 'Comeback Remix', world: 'dance', tr: 2, moods: ['Energetic'], rank: 4, cover: ['#359FA0', '#E8628F'] },
+// Music comes in 5 phases of 3 songs. A phase opens at the matching rank (Phase 1 = First Steps), so a new
+// player only ever chooses between a few songs. A song plays only once its MP3 is in public/songs/
+// (`file`), with its tempo (`bpm`) and the time of its first beat (`first`, seconds) measured from the file.
+// Songs without a file are locked placeholders. Licensed songs are for internal playtesting only:
+// keep public/songs out of anything you publish (it's in .gitignore).
+export const PHASES = [
+  { n: 1, name: 'Phase 1', vibe: 'Easy mornings' },
+  { n: 2, name: 'Phase 2', vibe: 'Feeling the groove' },
+  { n: 3, name: 'Phase 3', vibe: 'Turn it up' },
+  { n: 4, name: 'Phase 4', vibe: 'Party mode' },
+  { n: 5, name: 'Phase 5', vibe: 'Comeback anthems' },
 ];
+export const TRACKS = [
+  { id: 'she-doesnt-mind', phase: 1, title: 'She Doesn’t Mind', artist: 'Sean Paul', genre: 'Dancehall', world: 'pop', file: 'songs/she-doesnt-mind.mp3', bpm: 119.99, first: 0.48, end: 231, hook: 48, cover: ['#FF8C52', '#FFD36B'] },
+  { id: 'levitating', phase: 1, title: 'Levitating', artist: 'Dua Lipa ft. DaBaby', genre: 'Disco pop', world: 'dance', file: 'songs/levitating.mp3', bpm: 102.99, first: 0.57, end: 221, hook: 44, cover: ['#9C8CE8', '#E8628F'] },
+  { id: 'flowers', phase: 1, title: 'Flowers', artist: 'Miley Cyrus', genre: 'Pop', world: 'pop', cover: ['#FFD9A8', '#E8628F'] },
+  { id: 'sugar', phase: 2, title: 'Sugar', artist: 'Maroon 5', genre: 'Pop', world: 'pop', cover: ['#E8628F', '#FFF0C5'] },
+  { id: 'cheerleader', phase: 2, title: 'Cheerleader (Felix Jaehn Remix)', artist: 'OMI', genre: 'Tropical', world: 'acoustic', cover: ['#8AD6D1', '#FFD36B'] },
+  { id: 'watermelon-sugar', phase: 2, title: 'Watermelon Sugar', artist: 'Harry Styles', genre: 'Pop rock', world: 'acoustic', cover: ['#E8628F', '#8AD6D1'] },
+  { id: 'happy', phase: 3, title: 'Happy', artist: 'Pharrell Williams', genre: 'Soul pop', world: 'pop', cover: ['#FFD36B', '#FF8C52'] },
+  { id: 'cupid', phase: 3, title: 'Cupid (Twin Ver.)', artist: 'FIFTY FIFTY', genre: 'K-pop', world: 'pop', cover: ['#FFC7DA', '#C6B6FF'] },
+  { id: 'cant-stop-the-feeling', phase: 3, title: 'Can’t Stop the Feeling!', artist: 'Justin Timberlake', genre: 'Pop', world: 'pop', cover: ['#FF8C52', '#C6B6FF'] },
+  { id: 'kala-chashma', phase: 4, title: 'Kala Chashma', artist: 'Badshah, Neha Kakkar', genre: 'Bhangra pop', world: 'dhol', cover: ['#F2B33D', '#E8692B'] },
+  { id: 'london-thumakda', phase: 4, title: 'London Thumakda', artist: 'Labh Janjua, Sonu Kakkar', genre: 'Bollywood', world: 'dhol', cover: ['#FF8C52', '#9C8CE8'] },
+  { id: 'dance-monkey', phase: 4, title: 'Dance Monkey', artist: 'Tones and I', genre: 'Pop', world: 'pop', cover: ['#359FA0', '#FFD36B'] },
+  { id: 'uptown-funk', phase: 5, title: 'Uptown Funk', artist: 'Mark Ronson ft. Bruno Mars', genre: 'Funk', world: 'dance', cover: ['#2F4858', '#FF8C52'] },
+  { id: 'dont-start-now', phase: 5, title: 'Don’t Start Now', artist: 'Dua Lipa', genre: 'Disco pop', world: 'dance', cover: ['#9C8CE8', '#2F4858'] },
+  { id: 'shake-it-off', phase: 5, title: 'Shake It Off', artist: 'Taylor Swift', genre: 'Pop', world: 'pop', cover: ['#E8628F', '#FFD36B'] },
+].map((t) => ({ ...t, rank: t.phase - 1 }));
 export const SCENES = [
   { id: 'room', name: 'Warm Room', d: 'Cosy, calm, plants in the window', rank: 0 },
   { id: 'porch', name: 'Sunny Porch', d: 'Morning light and fresh air', rank: 0 },

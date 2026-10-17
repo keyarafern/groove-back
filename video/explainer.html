@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Groove Back explainer renderer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    html, body { margin: 0; background: #1e2a2f; color: #fff; font-family: Figtree, system-ui, sans-serif; }
+    canvas { display: block; width: 960px; height: 540px; margin: 20px auto; border-radius: 12px; }
+    p { text-align: center; }
+  </style>
+</head>
+<body>
+  <!-- Renders the Groove Back explainer (video + music + narration) to an MP4, entirely in the browser.
+       Preview: open with the dev server running, it plays in a loop. Render: call window.renderMp4(). -->
+  <canvas id="c" width="1920" height="1080"></canvas>
+  <p id="msg">Loading…</p>
+  <script type="module" src="./explainer.js"></script>
+</body>
+</html>

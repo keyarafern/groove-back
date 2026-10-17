@@ -26,7 +26,9 @@ export function audioCtx() {
 // One master gain so the Sound setting mutes everything at once.
 let master = null, muted = false;
 function dest(c) { if (!master) { master = c.createGain(); master.gain.value = muted ? 0 : 1; master.connect(c.destination); } return master; }
-export function setMuted(v) { muted = !!v; if (master) master.gain.value = muted ? 0 : 1; }
+export function setMuted(v) { muted = !!v; if (master) master.gain.value = muted ? 0 : 1; if (songEl) songEl.volume = muted ? 0 : 1; }
+// Lets the explainer-video renderer play the band into an OfflineAudioContext.
+export function setAudioContext(c) { shared = c; master = null; }
 export async function unlockAudio() { try { await audioCtx().resume(); } catch (e) { /* ignore */ } }
 
 function impulse(c, sec) {
@@ -339,7 +341,10 @@ export function preview(world, tr, bpm, onEnd) {
   b.setGroove(3, 'chorus'); b.start(Math.ceil(8 / b.spb), 0); previewBand = b;
   previewTimer = setTimeout(() => { stopPreview(); onEnd && onEnd(); }, 8000);
 }
-export function stopPreview() { clearTimeout(previewTimer); if (previewBand) { previewBand.stop(0.3); previewBand = null; } }
+export function stopPreview() {
+  clearTimeout(previewTimer); if (previewBand) { previewBand.stop(0.3); previewBand = null; }
+  clearTimeout(previewSongTimer); if (previewAudio) { const a = previewAudio; previewAudio = null; a.onerror = null; a.pause(); }
+}
 
 // UI sounds outside songs
 export const sfx = {
@@ -376,3 +381,125 @@ export const sfx = {
     }
   },
 };
+
+// ---------------------------------------------------------------- real songs (MP3s in public/songs)
+// The song is the clock. A game beat is one song beat (mult 1) or two (mult .5, "half-time"), and the
+// playback rate nudges the tempo (pitch preserved) so the pace never runs faster than the physio's plan.
+// Long routines loop the body of the song in whole 8-beat phrases, so the moves stay on the beat.
+// Songs play through one plain <audio> element (not Web Audio), so they work from file:// too, and the
+// element is "unlocked" on the first tap so Safari and Chrome let it start later, at the countdown's GO.
+// a valid 0.1-second silent WAV, built here so it plays in every browser
+const SILENT = (() => { const n = 800, b = new Uint8Array(44 + n), v = new DataView(b.buffer), w = (o, t) => [...t].forEach((ch, i) => (b[o + i] = ch.charCodeAt(0)));
+  w(0, 'RIFF'); v.setUint32(4, 36 + n, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, 'data'); v.setUint32(40, n, true); b.fill(128, 44);
+  let bin = ''; b.forEach((x) => (bin += String.fromCharCode(x))); return 'data:audio/wav;base64,' + btoa(bin); })();
+let songEl = null, unlocked = false;
+export function songElement() {
+  if (!songEl) { songEl = new Audio(); songEl.preload = 'auto'; songEl.preservesPitch = true; songEl.mozPreservesPitch = true; songEl.webkitPreservesPitch = true; }
+  return songEl;
+}
+function unlockSong() {
+  if (unlocked) return; const a = songElement();
+  if (a.src && !a.src.startsWith('data:')) { unlocked = true; return; }
+  a.src = SILENT; a.muted = true;
+  a.play().then(() => { a.pause(); a.muted = false; unlocked = true; }).catch(() => { a.muted = false; });
+}
+if (typeof document !== 'undefined') ['pointerdown', 'keydown', 'touchend'].forEach((ev) => document.addEventListener(ev, unlockSong, { capture: true }));
+const songVol = () => (muted ? 0 : 1);
+
+export class SongPlayer {
+  constructor(track, song) {
+    this.T = track; this.bpm = song.bpm; this.spb = 60 / song.bpm; this.rate = song.rate || 1;
+    this.mpb = (60 / track.bpm) / (song.mult || 1); // media seconds per game beat
+    this.anchor = track.first; // media time of game beat 0
+    this.loopStart = 16; this.loopEnd = Math.floor(((track.end || 9999) - this.anchor) / this.mpb / 8) * 8;
+    this.base = 0; this.t0 = 0; this.paused = false; this.level = 1; this.blocked = false;
+    this.c = audioCtx();
+    const a = this.a = songElement();
+    a.pause(); a.muted = false; a.loop = false; a.volume = songVol();
+    if (!a.src.endsWith(track.file)) a.src = track.file;
+    this.fx = this.c.createGain(); this.fx.gain.value = 1; this.fx.connect(dest(this.c));
+    this.last = { ct: 0, at: 0 };
+  }
+  // resolves true once the file can play, false if it's missing (the caller falls back to the band)
+  ready(ms = 8000) {
+    const a = this.a;
+    return new Promise((res) => {
+      if (a.readyState >= 3) return res(true);
+      const done = (v) => { clearTimeout(tm); a.removeEventListener('canplay', ok); a.removeEventListener('loadeddata', ok); a.removeEventListener('error', bad); res(v); };
+      const ok = () => done(true), bad = () => done(false), tm = setTimeout(() => done(a.readyState >= 2), ms);
+      a.addEventListener('canplay', ok); a.addEventListener('loadeddata', ok); a.addEventListener('error', bad);
+      if (a.readyState === 0) a.load();
+    });
+  }
+  mediaTime() { // smooth: currentTime only updates every few ms, so extrapolate between updates
+    const ct = this.a.currentTime, now = performance.now();
+    if (ct !== this.last.ct || this.a.paused) { this.last = { ct, at: now }; return ct; }
+    return ct + ((now - this.last.at) / 1000) * this.a.playbackRate;
+  }
+  play() {
+    const a = this.a;
+    a.playbackRate = this.rate; a.volume = songVol() * this.level;
+    return a.play().then(() => { this.blocked = false; return true; }).catch(() => {
+      // the browser refused to start sound without a tap: start on the very next tap instead
+      this.blocked = true;
+      const retry = () => { document.removeEventListener('pointerdown', retry, true); if (!this.stopped && !this.paused) this.a.play().then(() => { this.blocked = false; }).catch(() => {}); };
+      document.addEventListener('pointerdown', retry, true);
+      return false;
+    });
+  }
+  start(totalBeats) {
+    this.total = totalBeats; this.t0 = 1;
+    try { this.a.currentTime = Math.max(0, this.anchor - this.mpb); } catch (e) { /* */ }
+    this.play();
+    this.timer = setInterval(() => this.watch(), 30);
+  }
+  watch() { // the loop: jump back a whole number of phrases before the song's outro
+    const a = this.a; a.volume = songVol() * this.level;
+    if (this.paused || this.loopEnd <= this.loopStart + 8) return;
+    const m = (a.currentTime - this.anchor) / this.mpb;
+    if (m >= this.loopEnd) { const L = this.loopEnd - this.loopStart; this.base += L; a.currentTime -= L * this.mpb; this.last = { ct: -1, at: 0 }; }
+  }
+  beat() { return this.base + (this.mediaTime() - this.anchor) / this.mpb; }
+  seek(b) {
+    const L = this.loopEnd - this.loopStart;
+    let m = b;
+    if (L > 8 && b >= this.loopEnd) m = this.loopStart + ((b - this.loopStart) % L);
+    this.base = b - m; this.a.currentTime = this.anchor + m * this.mpb; this.last = { ct: -1, at: 0 };
+  }
+  async pause() { this.paused = true; this.a.pause(); }
+  async resume() { this.paused = false; try { await this.c.resume(); } catch (e) { /* */ } this.play(); }
+  stop(fade = 0.6) {
+    this.stopped = true; clearInterval(this.timer);
+    const a = this.a, v0 = a.volume, t0 = performance.now(), ms = Math.max(1, fade * 1000);
+    const step = () => { const k = Math.min(1, (performance.now() - t0) / ms); a.volume = v0 * (1 - k); if (k < 1) requestAnimationFrame(step); else a.pause(); };
+    if (fade > 0) step(); else a.pause();
+    setTimeout(() => { try { this.fx.disconnect(); } catch (e) { /* */ } }, ms + 300);
+  }
+  // breathers and warm-up/cool-down sit the music back a little
+  setGroove(level, section) { this.level = section === 'rest' ? 0.55 : section === 'warm' || section === 'cool' ? 0.8 : 1; }
+  bell(t, f, vol) {
+    const c = this.c, o = c.createOscillator(), g = c.createGain();
+    o.type = 'sine'; o.frequency.value = f; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);
+    o.connect(g).connect(this.fx); o.start(t); o.stop(t + 1.3);
+  }
+  stars(n, gold) {
+    const t = this.c.currentTime, root = 84;
+    [root + 7, root + 12, root + 16].slice(0, Math.max(1, n)).forEach((m, i) => this.bell(t + i * 0.07, mtof(m), n === 3 ? 0.08 : 0.05));
+    if (gold) [0, 4, 7, 12].forEach((d, i) => this.bell(t + 0.25 + i * 0.05, mtof(root + 12 + d), 0.04));
+  }
+  humOn() {} humOff() {}
+}
+
+// An 8-second taste of a real song, from its chorus. Called straight from a tap, so it's always allowed.
+let previewAudio = null, previewSongTimer = 0;
+export function previewSong(track, onEnd) {
+  stopPreview();
+  const a = songElement(); previewAudio = a;
+  a.pause(); a.src = track.file; a.volume = songVol(); a.playbackRate = 1;
+  const go = () => { try { a.currentTime = track.hook || 45; } catch (e) { /* */ } };
+  if (a.readyState >= 1) go(); else a.addEventListener('loadedmetadata', go, { once: true });
+  a.play().catch(() => { stopPreview(); onEnd && onEnd(false); });
+  a.onerror = () => { stopPreview(); onEnd && onEnd(false); };
+  previewSongTimer = setTimeout(() => { stopPreview(); onEnd && onEnd(true); }, 8000);
+}
+if (typeof window !== 'undefined') window.__gbAudio = () => songEl; // handy for checking the music from the browser console

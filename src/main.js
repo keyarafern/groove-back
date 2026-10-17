@@ -1,15 +1,16 @@
 import './style.css';
 import { S, save, resetAll, today, day, lastCheckin, addCheckin, planFor, earnable, recordSession, setPainAfter, restDay, streak, weekDots, weekSessions, rank, unlocked, trackOf, sceneOf, outfitOf,
   badgeProgress, takeUnseen, hasCosmetic, wearItem, cosmeticFor, crew, teamGoal, cheerChain, sendCheer, cheeredToday, crewFeed, weekSummary, firstWeek, chart, setPlan, presetPlan, startGame,
-  POINTS, scheduled, weekKey, DAY_NAMES, parse, addDays, dow, stats } from './state.js';
-import { CORE, POSES, INJURIES, RANKS, TRACKS, SCENES, GENRES, MOODS, OUTFITS, BADGES, COSMETICS, CHEERS, QUOTES, INTENSITY, PACES, SKIN } from './content.js';
+  POINTS, listProfiles, switchProfile, newProfile, deleteProfile, activeProfile, scheduled, weekKey, DAY_NAMES, parse, addDays, dow, stats } from './state.js';
+import { CORE, POSES, INJURIES, RANKS, TRACKS, PHASES, SCENES, GENRES, MOODS, OUTFITS, BADGES, COSMETICS, CHEERS, QUOTES, INTENSITY, PACES, SKIN } from './content.js';
 import { buildRoutine, songPose, fmtTime, movePoses } from './song.js';
 import { playSong } from './play.js';
-import { drawMiniAvatar, drawFigure, drawPicto, lerpPose, eio, clamp } from './figure.js';
+import { drawMiniAvatar, drawFigure, drawPicto, lerpPose, eio, clamp, FUR } from './figure.js';
 import { drawScene } from './scene.js';
 import { tracker, startCamera, drawSkeleton } from './tracker.js';
-import { sfx, unlockAudio, setMuted, preview, stopPreview } from './audio.js';
+import { sfx, unlockAudio, setMuted, preview, previewSong, stopPreview } from './audio.js';
 import { $, $$, esc, on, toast, sheet, confetti, icon } from './ui.js';
+import { gsap, reduced, revealPage, revealStep, leaveStep, pop, bounce, flash, fox as foxArt, hydrateFox, blobs, SPARK, BODY_ART, splash } from './intro.js';
 
 const app = document.getElementById('app');
 
@@ -22,7 +23,7 @@ const minis = new Set();
 function mini(color, { size = 64, poses = '', off = 0, beat = 0.6, cls = '', hat = '', trail = '', skin = '', glove = '' } = {}) {
   return `<canvas class="mini ${cls}" aria-hidden="true" width="${size * 2}" height="${size * 2}" style="width:${size}px;height:${size}px" data-color="${color}" data-poses="${poses}" data-off="${off}" data-beat="${beat}"${hat ? ` data-hat="${hat}"` : ''}${trail ? ` data-trail="${trail}"` : ''}${skin ? ` data-skin="${skin}"` : ''}${glove ? ` data-glove="${glove}"` : ''}></canvas>`;
 }
-function hydrate() { $$('canvas.mini').forEach((c) => minis.add(c)); }
+function hydrate() { $$('canvas.mini').forEach((c) => minis.add(c)); hydrateFox(app); }
 mini.hydrate = hydrate;
 const me = (o = {}) => { const of = outfitOf(); return mini(of.color, { skin: S.profile.skin, glove: of.glove, hat: S.wear.hat || '', trail: S.wear.trail || '', ...o }); };
 
@@ -43,7 +44,7 @@ function shell(content, tab) {
   return `<div class="shell">
     <aside class="side"><a class="logo" href="#" data-go="home" aria-label="Groove Back home">${LOGO}</a>
       <nav aria-label="Main">${NAV.map(([id, l]) => item(id, l)).join('')}</nav>
-      <div class="side-foot"><button class="nav-i" data-howto>${icon.help}<span>How to play</span></button><p class="proto">Prototype · demo data</p></div></aside>
+      <div class="side-foot"><button class="nav-i" data-go="profiles">${icon.people}<span>Switch profile</span></button><button class="nav-i" data-howto>${icon.help}<span>How to play</span></button><p class="proto">Prototype · demo data</p></div></aside>
     <div class="main">
       <header class="topbar"><a class="logo sm" href="#" data-go="home" aria-label="Groove Back home">${LOGO}</a>
         <div class="tb-r"><span class="pts-chip" title="Total points">${icon.star}<b>${S.points.toLocaleString()}</b> pts</span><button class="iconbtn" data-howto aria-label="How to play">${icon.help}</button><button class="avatar-btn" data-go="profile" aria-label="Your profile">${me({ size: 34, poses: 'out,vUp' })}</button></div></header>
@@ -56,10 +57,10 @@ function go(route, arg) {
   if (liveSong) { liveSong.stop(); liveSong = null; }
   stopPreview();
   current = route; window.scrollTo(0, 0);
-  app.classList.add('enter'); clearTimeout(go.t); go.t = setTimeout(() => app.classList.remove('enter'), 900);
-  const R = { home, sessions, progress, league, music, badges, profile, physio, onboarding };
+  const R = { home, sessions, progress, league, music, badges, profile, physio, onboarding, profiles };
   (R[route] || home)(arg);
-  hydrate();
+  hydrate(); hydrateFox(app);
+  if (route !== 'onboarding' && route !== 'profiles') revealPage(app);
 }
 on(document, '[data-go]', 'click', (e, t) => { e.preventDefault(); sfx.tap(); go(t.dataset.go, t.dataset.arg); });
 on(document, '[data-howto]', 'click', (e) => { e.preventDefault(); sfx.tap(); howToPlay(); });
@@ -67,68 +68,184 @@ on(document, '[data-rules]', 'click', (e) => { e.preventDefault(); ruleBook(); }
 const greet = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; };
 const ring = (frac, label, sub, cls = '') => { const C = 2 * Math.PI * 42; return `<div class="ringw ${cls}"><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="42" class="trk"/><circle cx="50" cy="50" r="42" class="arc" style="stroke-dasharray:${C};stroke-dashoffset:${C * (1 - clamp(frac))}"/></svg><div><b>${label}</b><small>${sub}</small></div></div>`; };
 const bar = (frac, cls = '') => `<div class="bar ${cls}"><i style="width:${(clamp(frac) * 100).toFixed(1)}%"></i></div>`;
-const routineFor = (opts = {}) => buildRoutine({ rx: S.rx, injury: S.profile.injury, plan: opts.plan || 'green', intensity: S.prefs.intensity, track: S.prefs.track, scene: S.prefs.scene, practice: !!opts.practice });
+const playable = (t) => unlocked(t) && !!t.file;
+const songLine = (t) => `${esc(t.artist || GENRES[t.world])}${t.genre ? ` · ${esc(t.genre)}` : ''}`;
+// play a track's 8-second preview: real songs from their chorus, the band otherwise
+function previewTrack(t, onEnd) { if (t.file) previewSong(t, onEnd); else preview(t.world, t.tr || 0, S.rx.bpm, onEnd); }
+function fixTrack() { const cur = TRACKS.find((t) => t.id === S.prefs.track); if (!cur || !playable(cur)) { const f = TRACKS.find(playable); if (f) { S.prefs.track = f.id; save(); } } }
+const routineFor = (opts = {}) => buildRoutine({ rx: S.rx, injury: S.profile.injury, plan: opts.plan || 'green', intensity: S.prefs.intensity, track: trackOf().id, scene: S.prefs.scene, practice: !!opts.practice });
 const setsPre = (n) => (n > 1 ? `${n} × ` : '');
 const targetText = (e) => setsPre(e.sets) + (e.timed ? `${e.secs} sec` : `${e.reps} ${CORE[e.move].hold ? 'holds' : 'reps'}`);
 const exTarget = (x) => { const m = CORE[x.move]; return setsPre(x.sets || 1) + (x.secs ? `${x.secs} sec` : `${x.reps} ${m.hold ? 'holds' : 'reps'}`); };
 const nextScheduled = () => { for (let i = 1; i <= 7; i++) { const k = addDays(today(), i); if (scheduled(k)) return i === 1 ? 'tomorrow' : DAY_NAMES[dow(k)]; } return 'soon'; };
 
 // ---------------------------------------------------------------- onboarding
-function onboarding(step = 0) {
+// Step 0 is the welcome. Steps 1–3 use the sidebar stepper; step 4 ("Your routine") is the How to play walkthrough.
+const OB_STEPS = ['About you', 'Recovery focus', 'Play style', 'Your routine'];
+const OB_BUDDY = ['', 'Let’s make you a dancer!', 'Small steps lead to big moves!', 'Your way to move. I’ll be with you!', 'That’s it. Let’s dance!'];
+const OB_VERSION = 2; // bump when the setup flow changes, so existing players see the new one once
+const OB_ICON = {
+  chart: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="12" width="4" height="8" rx="1.5" fill="currentColor"/><rect x="10" y="7" width="4" height="13" rx="1.5" fill="currentColor"/><rect x="16" y="10" width="4" height="10" rx="1.5" fill="currentColor"/></svg>',
+  star: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 16.8 6.6 19.7l1.1-6.1L3.2 9.4l6.1-.8z" fill="currentColor"/></svg>',
+  video: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="3" fill="currentColor"/><path d="M16 10.5l5-3v9l-5-3z" fill="currentColor"/></svg>',
+  nocam: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="3"/><path d="M16 10.5l5-3v9l-5-3M3 3l18 18"/></svg>',
+  note: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 17.5V5.2l11-2.2v12.3" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><ellipse cx="6.6" cy="17.6" rx="3" ry="2.4" fill="currentColor"/><ellipse cx="17.6" cy="15.4" rx="3" ry="2.4" fill="currentColor"/></svg>',
+  heart: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 7.4 4.3 4.3 0 0 1 19.5 10c0 5.4-7.5 10-7.5 10z" fill="currentColor"/></svg>',
+  doc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M9 11h6M9 15h6M9 7h3"/></svg>',
+  pulse: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12h4l2-5 3 11 3-14 2.5 8H22"/></svg>',
+};
+let obStep = 0;
+function onboarding(step = 0, dir = 1) {
+  step = +step || 0;
+  const P = S.profile, prev = obStep; obStep = step;
+  const mainEl = $('.ob-main');
+  if (mainEl && prev !== step && step > 0 && prev > 0) { leaveStep(mainEl, dir).then(() => renderOb(step, dir)); return; }
+  renderOb(step, dir);
+}
+function planRows() {
+  return S.rx.exercises.map((x) => { const m = CORE[x.move]; return `<li>${foxArt({ w: 30, h: 34, poses: movePoses(m), beat: 0.7, zoom: 1.1, hy: 0.42, face: 'focused' })}<span class="pn">${esc(m.name)}</span><b>${exTarget(x)}</b></li>`; }).join('');
+}
+function renderOb(step, dir) {
   const P = S.profile;
-  const dots = (n) => `<div class="steps" aria-label="Step ${n} of 3">${[1, 2, 3].map((i) => `<i class="${i <= n ? 'on' : ''}"></i>`).join('')}</div>`;
-  const steps = [
-    () => `<div class="ob hero">
+  if (step === 0) {
+    app.innerHTML = `<div class="obwrap welcome">${blobs()}<div class="ob hero">
       <div class="logo big">${LOGO}</div>
-      <div class="ob-art">${mini('#359FA0', { size: 190, poses: 'vUp,clapTop,swayL,out', beat: 0.5, skin: SKIN[2], glove: '#FF8C52' })}</div>
+      <div class="ob-art">${foxArt({ w: 250, h: 270, poses: 'vUp,clapTop,swayL,out', beat: 0.5, face: 'excited', hy: 0.47 })}</div>
       <h1>Dance your way back.</h1>
       <p class="lede">A music game built around your physiotherapy. Every session is made from the exercises your physio prescribes.</p>
       <div class="pillars"><div><b>Your physio picks the moves</b><span>Only exercises they approve, at their pace.</span></div><div><b>The song does the counting</b><span>Every rep lands on the beat. No counting needed.</span></div><div><b>Your league cheers you on</b><span>A small crew working toward one shared goal.</span></div><div><b>You just show up</b><span>100 points for every session you finish. That’s it.</span></div></div>
       <button class="btn primary big" data-next>Get started ${icon.arrow}</button>
-      <p class="small">For adults working with a physiotherapist. A motivation tool for prescribed exercise, not treatment.</p></div>`,
-    () => `<div class="ob">${dots(1)}<h2>Make your dancer</h2>
-      <p class="lede">Your league only ever sees this avatar and your nickname. Never your real name, injury or pain.</p>
-      <div class="ob-av"><div class="av-prev">${mini(outfitOf().color, { size: 160, poses: 'out,clapTop,swayL,swayR', skin: P.skin, glove: outfitOf().glove })}</div>
+      <p class="small">For adults working with a physiotherapist. A motivation tool for prescribed exercise, not treatment.</p></div></div>`;
+    hydrateFox(app);
+    if (!reduced()) gsap.fromTo($$('.ob.hero > *'), { y: 26, opacity: 0 }, { y: 0, opacity: 1, duration: 0.7, ease: 'power3.out', stagger: 0.07, clearProps: 'transform,opacity' });
+    $('[data-next]').onclick = () => { sfx.tap(); unlockAudio(); const hero = $('.ob.hero'); if (reduced()) return onboarding(1); gsap.to(hero, { y: -30, opacity: 0, duration: 0.35, ease: 'power2.in', onComplete: () => onboarding(1) }); };
+    return;
+  }
+  const stepper = OB_STEPS.map((n, i) => { const k = i + 1, cls = k < step ? 'done' : k === step ? 'now' : ''; return `<li class="${cls}" ${k === step ? 'aria-current="step"' : ''}><span class="dot">${k < step ? icon.check : k}</span><span>${n}</span></li>`; }).join('');
+  const segs = OB_STEPS.map((_, i) => `<i class="${i + 1 <= step ? 'on' : ''}"><b></b></i>`).join('');
+  const views = {
+    1: () => `<h1>Make your dancer</h1>
+      <p class="lede">Your league only ever sees this fox and your nickname. Never your real name, injury or pain.</p>
+      <div class="ob-av"><div class="av-prev">${foxArt({ w: 210, h: 240, poses: 'out,clapTop,swayL,swayR', beat: 0.55, face: 'happy', hy: 0.47, fur: FUR.includes(P.skin) ? P.skin : FUR[0], band: outfitOf().color })}</div>
         <div class="ob-fields">
           <div class="field"><label for="nick">Nickname</label><input id="nick" maxlength="16" placeholder="e.g. kia_moves" value="${esc(P.nick)}" autocomplete="off"></div>
-          <div class="field"><span class="flabel">Skin tone</span><div class="swatches" role="radiogroup" aria-label="Skin tone">${SKIN.map((c) => `<button class="sw ${c === P.skin ? 'on' : ''}" role="radio" aria-checked="${c === P.skin}" data-skin="${c}" style="background:${c}" aria-label="Skin tone"></button>`).join('')}</div></div>
-          <div class="field"><span class="flabel">Outfit</span><div class="swatches" role="radiogroup" aria-label="Outfit colour">${OUTFITS.filter((o) => !o.rank).map((o) => `<button class="sw ${o.id === P.outfit ? 'on' : ''}" role="radio" aria-checked="${o.id === P.outfit}" data-outfit="${o.id}" style="background:${o.color}" aria-label="${o.name}"></button>`).join('')}</div></div>
+          <div class="field"><span class="flabel">Fur</span><div class="swatches ob-swrow" role="radiogroup" aria-label="Fur colour">${FUR.map((c, i) => `<button class="sw ${c === P.skin || (!FUR.includes(P.skin) && !i) ? 'on' : ''}" role="radio" aria-checked="${c === P.skin}" data-fur="${c}" style="background:${c}" aria-label="Fur colour ${i + 1}"></button>`).join('')}</div></div>
+          <div class="field"><span class="flabel">Headband</span><div class="swatches ob-swrow" role="radiogroup" aria-label="Headband colour">${OUTFITS.filter((o) => !o.rank).map((o) => `<button class="sw ${o.id === P.outfit ? 'on' : ''}" role="radio" aria-checked="${o.id === P.outfit}" data-outfit="${o.id}" style="background:${o.color}" aria-label="${o.name}"></button>`).join('')}</div></div>
         </div></div>
-      <button class="btn primary big" data-next>Continue ${icon.arrow}</button></div>`,
-    () => `<div class="ob">${dots(2)}<h2>What are you recovering from?</h2>
+      <button class="btn primary big" data-next>Continue ${icon.arrow}</button>`,
+    2: () => `<h1>What are you recovering from?</h1>
       <p class="lede">Your physio sets the exact exercises. This picks which part of the body the routine focuses on.</p>
-      <div class="inj">${Object.entries(INJURIES).map(([k, v]) => `<button class="injb ${k === P.injury ? 'on' : ''}" data-inj="${k}" aria-pressed="${k === P.injury}"><b>${v.name}</b><span>${v.detail}</span></button>`).join('')}</div>
+      <div class="injg" role="radiogroup" aria-label="Recovery focus">${Object.entries(INJURIES).map(([k, v]) => `<button class="injc ${k === P.injury ? 'on' : ''}" role="radio" data-inj="${k}" aria-checked="${k === P.injury}"><span class="ia">${BODY_ART[k]}</span><span class="it"><b>${v.name}</b><small>${v.detail}</small></span><span class="rad">${icon.check}</span></button>`).join('')}</div>
       <div class="field"><label for="code">Clinic code from your physio</label><input id="code" value="ANJALI-24" autocomplete="off"><small>Demo code: loads Dr. Anjali’s starter plan. In a real clinic this would come from your physio’s account.</small></div>
-      <div class="card planprev"><p class="eyebrow">${icon.steth} Plan loaded</p><b>${esc(S.rx.title)}</b><ul>${S.rx.exercises.map((x) => `<li>${esc(CORE[x.move].name)} <span>${exTarget(x)}</span></li>`).join('')}</ul><small>${S.rx.perWeek} sessions a week · ${S.rx.bpm} BPM pace</small></div>
-      <button class="btn primary big" data-next>Continue ${icon.arrow}</button></div>`,
-    () => `<div class="ob">${dots(3)}<h2>How do you want to play?</h2>
+      <div class="plan-ld"><p class="eyebrow">${OB_ICON.doc} Plan loaded</p><h3 id="plTitle">${esc(S.rx.title)}</h3><ul id="plRows">${planRows()}</ul><p class="pl-foot">${OB_ICON.pulse}<span id="plFoot">${S.rx.perWeek} sessions a week · ${S.rx.bpm} BPM pace</span></p></div>
+      <button class="btn primary big" data-next>Continue ${icon.arrow}</button>`,
+    3: () => `<h1>How do you want to play?</h1>
       <p class="lede">Either way, points come from finishing your session. PERFECT and GOOD are for fun and feedback, never for points.</p>
-      <div class="ctl-choices">
-        <button class="ctlc ${S.prefs.camera ? 'on' : ''}" data-cam="1" aria-pressed="${S.prefs.camera}"><b>Camera: PERFECT / GOOD feedback <em class="beta">Recommended</em></b><span>Your camera watches each rep and the game cheers PERFECT, GREAT or GOOD, Just Dance style. Video stays on your device.</span></button>
-        <button class="ctlc ${!S.prefs.camera ? 'on' : ''}" data-cam="0" aria-pressed="${!S.prefs.camera}"><b>Follow along only</b><span>No camera. Mirror the coach and the song counts your reps.</span></button>
+      <div class="playg" role="radiogroup" aria-label="Play style">
+        <button class="playc ${S.prefs.camera ? 'on' : ''}" role="radio" data-cam="1" aria-checked="${S.prefs.camera}">
+          <span class="pc-t"><b>Camera: PERFECT / GOOD feedback</b> <em class="rec">Recommended</em></span>
+          <span class="pc-d">Your camera watches each rep and the game cheers PERFECT, GREAT or GOOD, just like a dance game. Video stays on your device.</span>
+          <span class="feats"><span><i>${OB_ICON.chart}</i>Real-time<br>feedback</span><span><i>${OB_ICON.star}</i>More<br>engaging</span><span><i>${OB_ICON.video}</i>Video stays<br>on your device</span></span>
+          <span class="pc-art">${foxArt({ w: 230, h: 200, poses: 'vUp,clapTop', beat: 0.42, face: 'excited', zoom: 1.75, hy: 0.98, hx: 0.5, cls: 'bust', band: outfitOf().color })}<span class="perfect">PERFECT!</span></span>
+          <span class="rad">${icon.check}</span></button>
+        <button class="playc ${!S.prefs.camera ? 'on' : ''}" role="radio" data-cam="0" aria-checked="${!S.prefs.camera}">
+          <span class="pc-t"><b>Follow along only</b></span>
+          <span class="pc-d">No camera. Mirror the coach and the song counts your reps.</span>
+          <span class="feats"><span><i>${OB_ICON.nocam}</i>No camera<br>needed</span><span><i>${OB_ICON.note}</i>Simple<br>and focused</span><span><i>${OB_ICON.heart}</i>Great for<br>casual practice</span></span>
+          <span class="pc-art"><span class="screen">${foxArt({ w: 120, h: 90, poses: 'out,stepWideR,out,stepWideL', beat: 0.6, zoom: 1, hy: 0.36, cls: 'ghost' })}</span>${foxArt({ w: 190, h: 200, poses: 'out,stepWideR,out,stepWideL', beat: 0.6, face: 'happy', zoom: 1.45, hy: 0.85, hx: 0.42, band: outfitOf().color })}</span>
+          <span class="rad">${icon.check}</span></button>
       </div>
-      <button class="btn primary big" data-next>Show me how to play ${icon.arrow}</button></div>`,
-  ];
-  app.innerHTML = `<div class="obwrap">${steps[step]()}</div>`;
-  hydrate();
+      <button class="btn primary big" data-next>Show me how to play ${icon.arrow}</button>`,
+    4: () => `<h1>How to play</h1>
+      <p class="lede">Three things, then you’re dancing. Your plan: <b>${esc(S.rx.title)}</b>, about ${Math.max(1, Math.round(routineFor().secs / 60))} minutes to <b>${esc(trackOf().title)}</b>.</p>
+      <div class="htg">
+        <div class="htc"><span class="hn">1</span><div class="hart">${foxArt({ w: 170, h: 150, poses: movePoses(CORE[S.rx.exercises[0].move]), beat: 0.7, face: 'focused', zoom: 1.05, hy: 0.42 })}<span class="glow-tag">Your exercise glows green</span></div>
+          <b>Mirror the fox</b><span>Face the screen and move like a mirror. The glowing part is your physio’s exercise; the rest is optional dance.</span></div>
+        <div class="htc"><span class="hn">2</span><div class="hart lane"><i class="line"></i><span class="mc">${foxArt({ w: 40, h: 44, poses: 'vUp', zoom: 1, hy: 0.44 })}</span><span class="mc">${foxArt({ w: 40, h: 44, poses: 'out', zoom: 1, hy: 0.44 })}</span><span class="mc gold">${foxArt({ w: 40, h: 44, poses: 'clapTop', zoom: 1, hy: 0.44 })}</span><em class="pf">PERFECT!</em></div>
+          <b>Hit the line</b><span>Move cards slide in on the beat. Make the shape as each one reaches the orange line. The song counts your reps.</span></div>
+        <div class="htc"><span class="hn">3</span><div class="hart ctrls"><span class="k">${icon.pause} Pause</span><span class="k">${icon.leaf} Lite</span><span class="k red">${icon.alert} That hurt</span></div>
+          <b>Stay in control</b><span>Lite makes every move smaller. “That hurt” stops straight away and tells your physio. Finish your session for <b>100 points</b>.</span></div>
+      </div>
+      <div class="row"><button class="btn primary big" data-next>Start dancing ${icon.arrow}</button><button class="link" id="fullGuide">See the full guide</button></div>`,
+  };
+  app.innerHTML = `<div class="obx">
+    <aside class="ob-side"><div class="logo">${LOGO}</div><ol class="stepper">${stepper}</ol>
+      <div class="ob-buddy">${foxArt({ w: 150, h: 120, poses: step >= 3 ? 'vUp,clapTop' : 'floatOut,floatIn', beat: step >= 3 ? 0.45 : 0.9, face: step >= 3 ? 'excited' : 'happy', zoom: 2.3, hy: 1.32, hx: 0.42, band: outfitOf().color })}<p class="bubble">${OB_BUDDY[step]} ${SPARK('#FF8C52', 16)}</p></div></aside>
+    <main class="ob-main" id="main"><div class="ob-prog"><div class="segs">${segs}</div><span>Step ${step} of ${OB_STEPS.length}</span></div>${views[step]()}</main>
+    ${blobs('side')}</div>`;
+  hydrateFox(app);
+  const main = $('.ob-main');
+  revealStep(main, dir);
+  pop($('.stepper .now .dot')); bounce($('.ob-buddy .bubble'));
   const n = $('#nick'); if (n) n.oninput = () => { P.nick = n.value.trim().replace(/\s+/g, '_'); };
-  $$('[data-skin]').forEach((b) => b.onclick = () => { P.skin = b.dataset.skin; save(); onboarding(step); });
-  $$('[data-outfit]').forEach((b) => b.onclick = () => { P.outfit = b.dataset.outfit; save(); onboarding(step); });
-  $$('.injb').forEach((b) => b.onclick = () => { P.injury = b.dataset.inj; S.rx = presetPlan(P.injury); save(); onboarding(step); });
-  $$('[data-cam]').forEach((b) => b.onclick = () => { S.prefs.camera = b.dataset.cam === '1'; save(); onboarding(step); });
+  const pick = (sel, attr, apply) => $$(sel).forEach((b) => b.onclick = () => {
+    sfx.tap(); apply(b.dataset[attr]); save();
+    $$(sel).forEach((x) => { const on = x === b; x.classList.toggle('on', on); x.setAttribute('aria-checked', String(on)); });
+    pop(b.querySelector('.rad') || b);
+  });
+  const refreshFox = () => $$('canvas.foxart').forEach((c) => { if (c.closest('.av-prev')) c.dataset.fur = FUR.includes(P.skin) ? P.skin : FUR[0]; if (c.dataset.band) c.dataset.band = outfitOf().color; });
+  pick('[data-fur]', 'fur', (v) => { P.skin = v; refreshFox(); bounce($('.av-prev')); });
+  pick('[data-outfit]', 'outfit', (v) => { P.outfit = v; refreshFox(); bounce($('.av-prev')); });
+  pick('[data-inj]', 'inj', (v) => { P.injury = v; S.rx = presetPlan(v); $('#plTitle').textContent = S.rx.title; $('#plRows').innerHTML = planRows(); $('#plFoot').textContent = `${S.rx.perWeek} sessions a week · ${S.rx.bpm} BPM pace`; hydrateFox($('#plRows')); flash($('.plan-ld')); });
+  pick('[data-cam]', 'cam', (v) => { S.prefs.camera = v === '1'; });
   $('[data-next]').onclick = () => {
     sfx.tap(); unlockAudio();
     if (step === 1 && !P.nick) P.nick = 'groover' + Math.floor(Math.random() * 90 + 10);
     save();
-    if (step < steps.length - 1) return onboarding(step + 1);
-    P.onboarded = true; startGame(); save();
-    howToPlay({ after: () => go('home'), cta: 'Go to my home screen' });
+    if (step < 4) return onboarding(step + 1, 1);
+    P.onboarded = true; P.obv = OB_VERSION; startGame(); save();
+    const m = $('.ob-main'); if (reduced() || !m) return go('home');
+    gsap.to(m, { y: -24, opacity: 0, duration: 0.35, ease: 'power2.in', onComplete: () => go('home') });
   };
+  const fg = $('#fullGuide'); if (fg) fg.onclick = () => howToPlay();
+  if (step === 4 && !reduced()) {
+    const cards = $$('.lane .mc');
+    gsap.fromTo(cards, { x: 250 }, { x: -70, duration: 2.4, ease: 'none', stagger: { each: 0.8, repeat: -1 } });
+    gsap.fromTo('.lane .pf', { scale: 0, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.35, ease: 'back.out(3)', repeat: -1, repeatDelay: 0.45, yoyo: true, delay: 1.5 });
+  }
+  $$('.stepper li.done').forEach((li, i) => { li.style.cursor = 'pointer'; li.onclick = () => onboarding(i + 1, -1); });
+}
+
+// ---------------------------------------------------------------- profile picker (every time the app opens)
+function enterProfile(fresh) {
+  applyA11y(); fixTrack();
+  if (fresh) return go('onboarding', listProfiles().length > 1 ? 1 : 0);
+  go(S.profile.onboarded && S.profile.obv === OB_VERSION ? 'home' : 'onboarding', S.profile.onboarded ? 1 : 0);
+}
+function profiles() {
+  const list = listProfiles();
+  const card = (p) => `<div class="pfc" data-pick="${p.id}" role="button" tabindex="0" aria-label="Play as ${esc(p.nick)}">
+      <div class="pf-art">${foxArt({ w: 150, h: 150, poses: 'out,clapTop,swayL,swayR', beat: 0.6, face: 'happy', zoom: 1.5, hy: 0.78, fur: FUR.includes(p.skin) ? p.skin : FUR[0], band: (OUTFITS.find((o) => o.id === p.outfit) || OUTFITS[0]).color })}</div>
+      <b>${esc(p.nick)}</b>
+      <span class="pf-inj">${BODY_ART[p.injury] || ''}${esc((INJURIES[p.injury] || INJURIES.knee).name)}</span>
+      <small>${p.onboarded ? `${p.sessions} session${p.sessions === 1 ? '' : 's'} · ${p.points.toLocaleString()} pts` : 'Setup not finished'}</small>
+      <button class="pf-del" data-del="${p.id}" aria-label="Remove ${esc(p.nick)}">${icon.x}</button></div>`;
+  app.innerHTML = `<div class="pfwrap">${blobs()}<div class="pf-in">
+    <div class="logo big">${LOGO}</div>
+    <h1>${list.length ? 'Who’s dancing today?' : 'Let’s make your profile'}</h1>
+    <p class="lede">${list.length ? 'Pick your profile, or start a new one for someone else or a different part of the body.' : 'Each profile keeps its own plan, progress and fox.'}</p>
+    <div class="pf-grid">${list.map(card).join('')}
+      <button class="pfc new" id="pfNew"><span class="pf-plus">${icon.plus}</span><b>New profile</b><small>New dancer or a new body part</small></button></div>
+  </div></div>`;
+  hydrateFox(app);
+  if (!reduced()) gsap.fromTo($$('.pf-in > *, .pfc'), { y: 24, opacity: 0 }, { y: 0, opacity: 1, duration: 0.6, ease: 'power3.out', stagger: 0.06, clearProps: 'transform,opacity' });
+  const leave = (fn) => { sfx.tap(); unlockAudio(); if (reduced()) return fn(); gsap.to('.pf-in', { y: -20, opacity: 0, duration: 0.3, ease: 'power2.in', onComplete: fn }); };
+  $$('[data-pick]').forEach((c) => {
+    const pickIt = (e) => { if (e.target.closest('[data-del]')) return; leave(() => { switchProfile(c.dataset.pick); enterProfile(false); }); };
+    c.onclick = pickIt; c.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickIt(e); } };
+  });
+  $('#pfNew').onclick = () => leave(() => { newProfile(); enterProfile(true); });
+  $$('[data-del]').forEach((b) => b.onclick = (e) => {
+    e.stopPropagation();
+    const p = list.find((x) => x.id === b.dataset.del);
+    const sh = sheet(`<h2>Remove ${esc(p.nick)}?</h2><p>This deletes that profile’s progress on this device. It can’t be undone.</p><div class="row"><button class="btn dark" id="pfYes">Remove profile</button><button class="btn ghost" data-close>Keep it</button></div>`);
+    $('#pfYes', sh.el).onclick = () => { deleteProfile(p.id); sh.close(); profiles(); };
+  });
 }
 
 // ---------------------------------------------------------------- home
 function home() {
-  if (!S.profile.onboarded) return onboarding(0);
+  if (!S.profile.onboarded || S.profile.obv !== OB_VERSION) return onboarding(S.profile.onboarded ? 1 : 0);
   const k = today(), d = day(k), can = earnable(), wkDone = weekSessions(), st = streak(), song = routineFor(), ci = lastCheckin();
   const first = S.rx.exercises[0], fm = CORE[first.move];
   const planPill = ci ? `<span class="pill ${ci.plan}">${ci.plan === 'green' ? 'Full routine' : ci.plan === 'amber' ? 'Lite today' : 'Gentle Groove'}</span>` : `<span class="pill">${INTENSITY[S.prefs.intensity].n}</span>`;
@@ -194,7 +311,7 @@ function badgeIcon(b, big = false) { const has = !!S.badges[b.id]; return `<span
 // ---------------------------------------------------------------- session setup
 function sessions() {
   const song = routineFor(), can = earnable(), T = trackOf(), rx = S.rx;
-  const avail = TRACKS.filter(unlocked), scenesOk = SCENES.filter(unlocked);
+  const avail = TRACKS.filter(playable), scenesOk = SCENES.filter(unlocked);
   const status = can.ok ? `<p class="ok-line">${icon.star} Finishing earns <b>${POINTS.session} points</b> and adds 1 to Groove Together.</p>`
     : `<p class="warn-line">${icon.check} Your plan is done for ${can.weekLeft === 0 ? 'this week' : 'today'}. You can replay for fun, but it earns no points. Rest is part of the plan.</p>`;
   const content = `<div class="setup">
@@ -214,7 +331,7 @@ function sessions() {
     </section>
     <aside class="col">
       <div class="card"><div class="ch"><h3>Music</h3><button class="link" data-go="music">Browse all</button></div>
-        <div class="trk-now"><span class="cover" style="--a:${T.cover[0]};--b:${T.cover[1]}">${icon.music}</span><div><b>${esc(T.title)}</b><small>${GENRES[T.world]} · plays at ${rx.bpm} BPM</small></div><button class="iconbtn" id="bPrev" aria-label="Preview ${esc(T.title)}">${icon.play}</button></div>
+        <div class="trk-now"><span class="cover" style="--a:${T.cover[0]};--b:${T.cover[1]}">${icon.music}</span><div><b>${esc(T.title)}</b><small>${songLine(T)} · danced at ${Math.round(song.bpm)} BPM</small></div><button class="iconbtn" id="bPrev" aria-label="Preview ${esc(T.title)}">${icon.play}</button></div>
         <div class="chips" role="radiogroup" aria-label="Track">${avail.map((t) => `<button class="chip ${t.id === T.id ? 'on' : ''}" role="radio" aria-checked="${t.id === T.id}" data-track="${t.id}">${esc(t.title)}</button>`).join('')}</div></div>
       <div class="card"><div class="ch"><h3>Scene</h3><button class="link" data-go="music" data-arg="scenes">See all</button></div>
         <div class="scene-mini">${scenesOk.map((x) => `<button class="sc ${x.id === S.prefs.scene ? 'on' : ''}" data-scene="${x.id}" aria-pressed="${x.id === S.prefs.scene}"><canvas class="scenecv" data-scene="${x.id}" width="200" height="120" aria-hidden="true"></canvas><span>${esc(x.name)}</span></button>`).join('')}</div></div>
@@ -231,7 +348,7 @@ function sessions() {
   $('#pLite').onchange = (e) => { S.prefs.lite = e.target.checked; save(); };
   $('#pCam').onchange = (e) => { S.prefs.camera = e.target.checked; save(); };
   let playing = false;
-  $('#bPrev').onclick = (e) => { unlockAudio(); const btn = e.currentTarget; if (playing) { stopPreview(); playing = false; btn.innerHTML = icon.play; return; } playing = true; btn.innerHTML = icon.pause; preview(T.world, T.tr, rx.bpm, () => { playing = false; btn.innerHTML = icon.play; }); };
+  $('#bPrev').onclick = (e) => { unlockAudio(); const btn = e.currentTarget; if (playing) { stopPreview(); playing = false; btn.innerHTML = icon.play; return; } playing = true; btn.innerHTML = icon.pause; previewTrack(T, () => { playing = false; btn.innerHTML = icon.play; }); };
   $('#bStart').onclick = () => begin(false);
   $('#bPractice').onclick = () => begin(true);
 }
@@ -483,27 +600,27 @@ function league() {
 }
 
 // ---------------------------------------------------------------- music + scenes
-let mood = 'All';
 function music(tab = 'music') {
   const T = trackOf();
-  const list = TRACKS.filter((t) => mood === 'All' || t.moods.includes(mood));
+  const card = (t) => { const ok = playable(t); return `<div class="trk ${t.id === T.id ? 'on' : ''} ${ok ? '' : 'locked'}">
+      <div class="cover big" style="--a:${t.cover[0]};--b:${t.cover[1]}"><span class="gen">${esc(t.genre || GENRES[t.world])}</span>${icon.music}${ok ? `<button class="playb" data-prev="${t.id}" aria-label="Preview ${esc(t.title)}">${icon.play}</button>` : `<span class="lockb">${icon.lock}</span>`}${t.id === T.id ? `<span class="selb">${icon.check}</span>` : ''}</div>
+      <b>${esc(t.title)}</b><small>${esc(t.artist || '')}${ok ? '' : unlocked(t) ? ' · Locked: add the song file' : ` · Locked until ${RANKS[t.rank].name}`}</small>
+      ${ok ? `<button class="btn ${t.id === T.id ? 'ghost' : 'dark'} small" data-use="${t.id}" ${t.id === T.id ? 'disabled' : ''}>${t.id === T.id ? 'Your session track' : 'Use this track'}</button>` : ''}</div>`; };
+  const cur = Math.max(1, ...TRACKS.filter(playable).map((t) => t.phase));
   const content = `<div class="page">
-    <div class="ph"><div><h1>${tab === 'music' ? 'Choose your music' : 'Choose your scene'}</h1><p class="lede">${tab === 'music' ? `Find your rhythm. Same moves, different vibes. Every track plays at your plan’s pace (${S.rx.bpm} BPM).` : 'Move in a space that feels right. Scenes change the look, never the exercises.'}</p></div>
+    <div class="ph"><div><h1>${tab === 'music' ? 'Choose your music' : 'Choose your scene'}</h1><p class="lede">${tab === 'music' ? `Three songs per phase. Same moves, different vibes. Each song is fitted to your plan’s pace (${S.rx.bpm} BPM) and never runs faster.` : 'Move in a space that feels right. Scenes change the look, never the exercises.'}</p></div>
       <div class="seg" role="tablist"><button role="tab" aria-selected="${tab === 'music'}" aria-pressed="${tab === 'music'}" data-tab="music">Music</button><button role="tab" aria-selected="${tab === 'scenes'}" aria-pressed="${tab === 'scenes'}" data-tab="scenes">Scenes</button></div></div>
-    ${tab === 'music' ? `<div class="chips">${MOODS.map((m) => `<button class="chip ${m === mood ? 'on' : ''}" data-mood="${m}" aria-pressed="${m === mood}">${m}</button>`).join('')}</div>
-    <div class="tracks">${list.map((t) => { const ok = unlocked(t); return `<div class="trk ${t.id === T.id ? 'on' : ''} ${ok ? '' : 'locked'}">
-      <div class="cover big" style="--a:${t.cover[0]};--b:${t.cover[1]}"><span class="gen">${GENRES[t.world]}</span>${icon.music}${ok ? `<button class="playb" data-prev="${t.id}" aria-label="Preview ${esc(t.title)}">${icon.play}</button>` : `<span class="lockb">${icon.lock}</span>`}${t.id === T.id ? `<span class="selb">${icon.check}</span>` : ''}</div>
-      <b>${esc(t.title)}</b><small>${ok ? `${GENRES[t.world]} · original` : `Unlocks at ${RANKS[t.rank].name}`}</small>
-      ${ok ? `<button class="btn ${t.id === T.id ? 'ghost' : 'dark'} small" data-use="${t.id}" ${t.id === T.id ? 'disabled' : ''}>${t.id === T.id ? 'Your session track' : 'Use this track'}</button>` : ''}</div>`; }).join('')}</div>
-    <p class="small">All music is played live by the Groove Back band, synthesised in your browser. There are no licensed songs in this prototype.</p>`
+    ${tab === 'music' ? `${PHASES.map((ph) => { const list = TRACKS.filter((t) => t.phase === ph.n), open = list.some(playable);
+      return `<section class="phase ${open ? '' : 'locked'} ${ph.n === cur ? 'cur' : ''}"><div class="phase-h"><h2>${ph.name}</h2><span class="small">${esc(ph.vibe)}</span>${ph.n === cur ? '<em class="here">You’re here</em>' : open ? '' : `<em class="lk">${icon.lock} ${RANKS[ph.n - 1].name}</em>`}</div>
+        <div class="tracks">${list.map(card).join('')}</div></section>`; }).join('')}
+    <p class="small">Prototype playtest: the songs are commercial tracks used for internal testing only. If a song file is missing, the Groove Back band plays instead at the same pace.</p>`
     : `<div class="scenes">${SCENES.map((x) => { const ok = unlocked(x); return `<button class="scn ${x.id === S.prefs.scene ? 'on' : ''} ${ok ? '' : 'locked'}" data-scene="${x.id}" ${ok ? '' : 'disabled'} aria-pressed="${x.id === S.prefs.scene}"><canvas class="scenecv" data-scene="${x.id}" width="420" height="260" aria-hidden="true"></canvas>
       <span class="sn"><b>${esc(x.name)}</b><small>${ok ? esc(x.d) : `Unlocks at ${RANKS[x.rank].name}`}</small></span>${x.id === S.prefs.scene ? `<span class="selb">${icon.check}</span>` : ''}${ok ? '' : `<span class="lockb">${icon.lock}</span>`}</button>`; }).join('')}</div>`}
   </div>`;
   app.innerHTML = shell(content, 'music');
   drawSceneThumbs();
-  $$('[data-tab]').forEach((b) => b.onclick = () => { stopPreview(); music(b.dataset.tab); hydrate(); });
-  $$('[data-mood]').forEach((b) => b.onclick = () => { mood = b.dataset.mood; music('music'); hydrate(); });
-  $$('[data-use]').forEach((b) => b.onclick = () => { S.prefs.track = b.dataset.use; save(); stopPreview(); toast(`${esc(trackOf().title)} is your session track`); music('music'); hydrate(); });
+  $$('[data-tab]').forEach((b) => b.onclick = () => { stopPreview(); music(b.dataset.tab); hydrate(); revealPage(app); });
+  $$('[data-use]').forEach((b) => b.onclick = () => { S.prefs.track = b.dataset.use; save(); stopPreview(); toast(`${esc(trackOf().title)} is your session track`); music('music'); hydrate(); pop($(`[data-use="${b.dataset.use}"]`)?.closest('.trk')?.querySelector('.selb')); });
   $$('button.scn[data-scene]').forEach((b) => b.onclick = () => { S.prefs.scene = b.dataset.scene; save(); toast(`${esc(sceneOf().name)} selected`); music('scenes'); hydrate(); });
   let playingId = null;
   $$('[data-prev]').forEach((b) => b.onclick = () => {
@@ -511,7 +628,7 @@ function music(tab = 'music') {
     $$('[data-prev]').forEach((x) => { x.innerHTML = icon.play; });
     if (playingId === b.dataset.prev) { stopPreview(); playingId = null; return; }
     const t = TRACKS.find((x) => x.id === b.dataset.prev); playingId = t.id; b.innerHTML = icon.pause;
-    preview(t.world, t.tr, S.rx.bpm, () => { playingId = null; b.innerHTML = icon.play; });
+    previewTrack(t, () => { playingId = null; b.innerHTML = icon.play; });
   });
 }
 
@@ -559,7 +676,7 @@ function profile(tab = 'overview') {
     <div class="card"><h3>Notifications <em class="beta">Prototype</em></h3>${sw('notify.reminders', 'Session reminder', 'On your suggested days', S.notify.reminders)}
       <div class="field inline"><label for="nTime">Reminder time</label><select id="nTime">${['08:00', '12:00', '18:00', '20:00'].map((t) => `<option ${t === S.notify.time ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
       ${sw('notify.cheers', 'Cheers from my league', 'When someone cheers you on', S.notify.cheers)}<p class="small">This prototype saves your choices but doesn’t send real notifications.</p></div>
-    <div class="card"><h3>Help</h3><div class="row"><button class="btn ghost small" data-howto>How to play</button><button class="btn ghost small" data-rules>Rule book</button></div>
+    <div class="card"><h3>Help</h3><div class="row"><button class="btn ghost small" data-howto>How to play</button><button class="btn ghost small" data-rules>Rule book</button><button class="btn ghost small" data-go="onboarding" data-arg="1">Redo setup</button><button class="btn ghost small" data-go="profiles">Switch profile</button></div>
       <h3 class="mt">Playtest tools</h3><p class="small">For demos: move time forward to try weekly rules. Game date: ${today()}.</p>
       <div class="row"><button class="btn ghost small" id="tNext">Next day →</button><button class="btn ghost small" id="tWeek">Next Monday →</button><button class="btn ghost small" id="tReset">Reset game</button></div></div></div>`;
   const content = `<div class="page">
@@ -730,5 +847,6 @@ function ruleBook() {
 
 // ---------------------------------------------------------------- boot
 applyA11y();
+fixTrack();
 document.addEventListener('pointerdown', () => unlockAudio(), { once: true });
-go(S.profile.onboarded ? 'home' : 'onboarding');
+splash(() => go('profiles'));
